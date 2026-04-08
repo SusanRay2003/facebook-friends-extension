@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 import "./index.css";
 
-// Updated with your actual credentials from the screenshot
-const FIREBASE_PROJECT_ID = "facebook-friends-app"; 
+const FIREBASE_PROJECT_ID = "facebook-friends-app";
 const FIREBASE_API_KEY = "AIzaSyCUISVXs_jPa8tgvAVIOZvCcAYvmQxiaL4";
 
-async function fetchFriendsFromFirebase() {
-  const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/friendslists/mylist?key=${FIREBASE_API_KEY}`;
+async function fetchFriendsFromFirebase(userId) {
+  const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/friendslists/${userId}?key=${FIREBASE_API_KEY}`;
   const res = await fetch(url);
   const data = await res.json();
 
@@ -34,16 +33,27 @@ function App() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetchFriendsFromFirebase()
+    // Get userId from URL like: vercel.app?user=susan.ray
+    const params = new URLSearchParams(window.location.search);
+    const userId = params.get("user");
+
+    // If no userId in URL → show instructions page
+    if (!userId) {
+      setError("no_user");
+      setLoading(false);
+      return;
+    }
+
+    fetchFriendsFromFirebase(userId)
       .then(data => {
         if (data.length === 0) {
-          setError("No friends yet! Use the extension on Facebook first.");
+          setError("No friends found! Use the extension on Facebook first.");
         }
         setFriends(data);
         setLoading(false);
       })
       .catch(() => {
-        setError("Failed to load friends. Please try again.");
+        setError("Failed to load. Please try again.");
         setLoading(false);
       });
   }, []);
@@ -52,10 +62,37 @@ function App() {
     f.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  if (loading) {
+  if (loading) return <div className="center">⏳ Loading your friends...</div>;
+
+  // Show instructions if no user in URL
+  if (error === "no_user") {
     return (
-      <div className="center">
-        <p>⏳ Loading your friends...</p>
+      <div className="app">
+        <h1>👥 Facebook Friends Reader</h1>
+        <div className="instruction-box">
+          <h2>👋 Welcome!</h2>
+          <p>This app works together with a Chrome Extension.</p>
+          <br />
+          <h3>📋 How to use:</h3>
+          <ol>
+            <li>Download and install the Chrome Extension from GitHub</li>
+            <li>Open Chrome and go to facebook.com/friends/list</li>
+            <li>Click the extension icon in your toolbar</li>
+            <li>Click Read Friends from Facebook</li>
+            <li>Click Open Friends App</li>
+            <li>Your friends will appear here!</li>
+          </ol>
+          <br />
+          
+          <a
+            href="https://github.com/SusanRay2003/facebook-friends-extension"
+            target="_blank"
+            rel="noreferrer"
+            className="github-btn"
+          >
+            📦 Download Extension from GitHub
+          </a>
+        </div>
       </div>
     );
   }
@@ -64,10 +101,8 @@ function App() {
     <div className="app">
       <h1>👥 Your Facebook Friends</h1>
 
-      {error ? (
-        <div className="error-box">
-          <p>{error}</p>
-        </div>
+      {error && error !== "no_user" ? (
+        <div className="error-box"><p>{error}</p></div>
       ) : (
         <>
           <p className="subtitle">{friends.length} friends found</p>

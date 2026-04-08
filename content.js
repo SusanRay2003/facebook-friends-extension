@@ -1,14 +1,11 @@
 // content.js
 
-// ---- YOUR FIREBASE CONFIG HERE ----
-// ---- YOUR FIREBASE CONFIG HERE ----
 const FIREBASE_PROJECT_ID = "facebook-friends-app";
 const FIREBASE_API_KEY = "AIzaSyCUISVXs_jPa8tgvAVIOZvCcAYvmQxiaL4";
-// ------------------------------------
-// ------------------------------------
 
-async function saveToFirebase(friends) {
-  const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/friendslists/mylist?key=${FIREBASE_API_KEY}`;
+async function saveToFirebase(friends, userId) {
+  // Each user gets their OWN document using their Facebook username!
+  const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/friendslists/${userId}?key=${FIREBASE_API_KEY}`;
 
   const fields = {};
   friends.forEach((f, i) => {
@@ -84,12 +81,10 @@ function extractFriends() {
   return friends;
 }
 
-// Auto scroll to bottom to load ALL friends
 function autoScroll() {
   return new Promise((resolve) => {
     let lastHeight = 0;
     let tries = 0;
-    const maxTries = 30; // max 30 scrolls
 
     const timer = setInterval(() => {
       window.scrollBy(0, 800);
@@ -99,46 +94,53 @@ function autoScroll() {
         tries++;
         if (tries >= 3) {
           clearInterval(timer);
-          window.scrollTo(0, 0); // scroll back to top
+          window.scrollTo(0, 0);
           resolve();
         }
       } else {
         tries = 0;
         lastHeight = newHeight;
       }
-
-      if (tries >= maxTries) {
-        clearInterval(timer);
-        resolve();
-      }
-    }, 800); // scroll every 800ms
+    }, 800);
   });
+}
+
+// Get Facebook username from the URL or page
+function getUserId() {
+  // Try to get from profile link
+  const profileLink = document.querySelector('a[href*="facebook.com/"][aria-label]');
+  if (profileLink) {
+    const href = profileLink.href;
+    const match = href.match(/facebook\.com\/([^/?]+)/);
+    if (match) return match[1];
+  }
+  // Fallback: use timestamp as unique id
+  return "user_" + Date.now();
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "getFriends") {
-
-    // Tell popup we started scrolling
     sendResponse({ started: true });
 
-    // Start auto scrolling then extract
     autoScroll().then(async () => {
       const friends = extractFriends();
+      const userId = getUserId();
 
-      // Save to chrome storage (for local use)
-      chrome.storage.local.set({ friends });
+      // Save userId so popup can build the link
+      chrome.storage.local.set({ friends, userId });
 
-      // Save to Firebase (for Vercel app)
       try {
-        await saveToFirebase(friends);
+        await saveToFirebase(friends, userId);
         chrome.runtime.sendMessage({
           action: "friendsDone",
-          count: friends.length
+          count: friends.length,
+          userId: userId
         });
       } catch (e) {
         chrome.runtime.sendMessage({
           action: "friendsDone",
           count: friends.length,
+          userId: userId,
           error: "Firebase save failed"
         });
       }
