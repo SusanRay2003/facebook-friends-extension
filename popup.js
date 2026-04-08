@@ -1,30 +1,43 @@
 // popup.js
 document.getElementById("readBtn").addEventListener("click", async () => {
-    const statusEl = document.getElementById("status");
-    statusEl.textContent = "⏳ Reading friends...";
-  
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  
-    if (!tab.url.includes("facebook.com")) {
-      statusEl.textContent = "❌ Please open Facebook first!";
-      return;
+  const statusEl = document.getElementById("status");
+  statusEl.textContent = "⏳ Auto-scrolling to load all friends...";
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  if (!tab.url.includes("facebook.com")) {
+    statusEl.textContent = "❌ Please open Facebook first!";
+    return;
+  }
+
+  // Disable button while working
+  document.getElementById("readBtn").disabled = true;
+  document.getElementById("readBtn").textContent = "⏳ Working...";
+
+  chrome.tabs.sendMessage(tab.id, { action: "getFriends" }, (response) => {
+    if (chrome.runtime.lastError) {
+      statusEl.textContent = "❌ Error: Refresh Facebook & try again.";
+      document.getElementById("readBtn").disabled = false;
+      document.getElementById("readBtn").textContent = "📥 Read Friends from Facebook";
     }
-  
-    chrome.tabs.sendMessage(tab.id, { action: "getFriends" }, (response) => {
-      if (chrome.runtime.lastError) {
-        statusEl.textContent = "❌ Error: Refresh Facebook & try again.";
-        return;
-      }
-      if (response && response.success) {
-        statusEl.textContent = `✅ Found ${response.count} friends! Now click Open Friends App.`;
-      } else {
-        statusEl.textContent = "⚠️ 0 friends. Scroll down on Facebook first!";
-      }
-    });
   });
-  
-  document.getElementById("openBtn").addEventListener("click", () => {
-    // Open the BUILT React app from inside the extension (not localhost!)
-    const url = chrome.runtime.getURL("index.html");
-    chrome.tabs.create({ url: url });
-  });
+});
+
+// Listen for when friends are done being collected
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.action === "friendsDone") {
+    const statusEl = document.getElementById("status");
+    document.getElementById("readBtn").disabled = false;
+    document.getElementById("readBtn").textContent = "📥 Read Friends from Facebook";
+
+    if (message.error) {
+      statusEl.textContent = `⚠️ Found ${message.count} friends but cloud save failed.`;
+    } else {
+      statusEl.textContent = `✅ Found ${message.count} friends! View on web app now!`;
+    }
+  }
+});
+
+document.getElementById("openBtn").addEventListener("click", () => {
+  chrome.tabs.create({ url: "https://facebook-friends-extension.vercel.app" });
+});

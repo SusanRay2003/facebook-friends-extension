@@ -1,40 +1,41 @@
 {
-    "manifest_version": 3,
-    "name": "Facebook Friends Reader",
-    "version": "1.0",
-    "description": "Reads your Facebook friends list and displays them",
-  
-    "permissions": [
-      "activeTab",
-      "scripting",
-      "storage",
-      "tabs"
-    ],
-  
-    "host_permissions": [
-      "https://www.facebook.com/*"
-    ],
-  
-    "content_scripts": [
-      {
-        "matches": ["https://www.facebook.com/*"],
-        "js": ["content.js"]
-      }
-    ],
-  
-    "background": {
-      "service_worker": "background.js"
-    },
-  
-    "action": {
-      "default_popup": "popup.html",
-      "default_title": "Facebook Friends Reader"
-    },
-  
-    "web_accessible_resources": [
-      {
-        "resources": ["index.html", "assets/*"],
-        "matches": ["<all_urls>"]
-      }
-    ]
-  }
+  "manifest_version": 3,
+  "name": "Facebook Friends Reader",
+  "version": "1.0",
+  "description": "Reads your Facebook friends list and displays them",
+
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabs"
+  ],
+
+  "host_permissions": [
+    "https://www.facebook.com/*",
+    "https://firestore.googleapis.com/*"
+  ],
+
+  "content_scripts": [
+    {
+      "matches": ["https://www.facebook.com/*"],
+      "js": ["content.js"]
+    }
+  ],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Facebook Friends Reader"
+  },
+
+  "web_accessible_resources": [
+    {
+      "resources": ["index.html", "assets/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
