@@ -62,3 +62,63 @@ h1 { color: #1877f2; font-size: 28px; margin-bottom: 4px; }
 
 .name { font-size: 13px; font-weight: 600; color: #1c1e21; }
 .empty { text-align: center; color: #999; margin-top: 40px; }
+/* YOUR EXISTING CSS STAYS HERE - don't touch it */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: Arial, sans-serif;
+  background: #f0f2f5;
+  min-height: 100vh;
+}
+
+.app {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 32px 16px;
+}
+
+/* ... all your existing styles ... */
+
+.empty { text-align: center; color: #999; margin-top: 40px; }
+
+
+/* 👇 ADD THE NEW CSS HERE AT THE VERY BOTTOM */
+.instruction-box {
+  background: white;
+  border-radius: 16px;
+  padding: 32px;
+  max-width: 600px;
+  margin: 0 auto;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+}
+
+.instruction-box h2 {
+  color: #1877f2;
+  font-size: 22px;
+}
+
+.instruction-box h3 {
+  color: #333;
+  margin-bottom: 8px;
+}
+
+.instruction-box ol {
+  padding-left: 20px;
+  line-height: 2;
+  color: #444;
+}
+
+.github-btn {
+  display: inline-block;
+  background: #24292e;
+  color: white;
+  padding: 12px 24px;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: bold;
+  margin-top: 8px;
+}
+
+.github-btn:hover {
+  background: #444;
+}
