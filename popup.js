@@ -1,7 +1,6 @@
 // popup.js
 document.getElementById("readBtn").addEventListener("click", async () => {
   const statusEl = document.getElementById("status");
-  statusEl.textContent = "⏳ Auto-scrolling to load all friends...";
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
@@ -10,6 +9,7 @@ document.getElementById("readBtn").addEventListener("click", async () => {
     return;
   }
 
+  statusEl.textContent = "⏳ Starting...";
   document.getElementById("readBtn").disabled = true;
   document.getElementById("readBtn").textContent = "⏳ Working...";
 
@@ -22,14 +22,20 @@ document.getElementById("readBtn").addEventListener("click", async () => {
   });
 });
 
+// Show live status updates from content.js
 chrome.runtime.onMessage.addListener((message) => {
+  const statusEl = document.getElementById("status");
+
+  if (message.action === "updateStatus") {
+    statusEl.textContent = message.message;
+  }
+
   if (message.action === "friendsDone") {
-    const statusEl = document.getElementById("status");
     document.getElementById("readBtn").disabled = false;
     document.getElementById("readBtn").textContent = "📥 Read Friends from Facebook";
 
     if (message.error) {
-      statusEl.textContent = `⚠️ Found ${message.count} friends but cloud save failed.`;
+      statusEl.textContent = `⚠️ Error: ${message.error}`;
     } else {
       statusEl.textContent = `✅ Found ${message.count} friends! Click Open App!`;
     }
@@ -37,10 +43,8 @@ chrome.runtime.onMessage.addListener((message) => {
 });
 
 document.getElementById("openBtn").addEventListener("click", () => {
-  // Get the userId and pass it in the URL!
   chrome.storage.local.get(["userId"], (result) => {
     const userId = result.userId || "unknown";
-    // Opens Vercel app with their unique userId in the URL
     chrome.tabs.create({
       url: `https://facebook-friends-extension.vercel.app?user=${userId}`
     });
