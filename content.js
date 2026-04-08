@@ -35,49 +35,50 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function getScrollableContainer() {
+  return document.querySelector('[role="main"]') || document.scrollingElement;
+}
+
 async function autoScroll() {
-  console.log("Starting auto scroll...");
+  console.log("Starting advanced auto scroll...");
 
+  const container = getScrollableContainer();
+
+  let lastHeight = 0;
+  let sameHeightCount = 0;
   let previousFriendCount = 0;
-  let noNewFriendsCount = 0;
 
-  // Keep scrolling until no new friends load
   while (true) {
-    // Scroll down by a small amount
-    window.scrollBy({
-      top: 600,
-      behavior: 'smooth'
-    });
+    // Scroll inside container
+    container.scrollTop = container.scrollHeight;
 
-    // Wait 1.5 seconds for Facebook to load new friends
-    await sleep(1500);
+    await sleep(3000);
 
-    // Count how many friends are visible now
+    const newHeight = container.scrollHeight;
     const currentCount = countVisibleFriends();
-    console.log("Friends visible so far:", currentCount);
+
+    console.log("Height:", newHeight, "Friends:", currentCount);
+
+    if (newHeight === lastHeight) {
+      sameHeightCount++;
+    } else {
+      sameHeightCount = 0;
+      lastHeight = newHeight;
+    }
 
     if (currentCount === previousFriendCount) {
-      // No new friends loaded
-      noNewFriendsCount++;
-      console.log("No new friends, attempt:", noNewFriendsCount);
-
-      if (noNewFriendsCount >= 4) {
-        // Tried 4 times with no new friends = we're done!
-        console.log("Scrolling complete!");
-        break;
-      }
-
-      // Wait a bit longer and try again
-      await sleep(2000);
+      sameHeightCount++;
     } else {
-      // New friends loaded! Reset counter
-      noNewFriendsCount = 0;
       previousFriendCount = currentCount;
+    }
+
+    if (sameHeightCount >= 7) {
+      console.log("All friends loaded!");
+      break;
     }
   }
 
-  // Scroll back to top
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  container.scrollTop = 0;
   await sleep(1000);
 }
 
