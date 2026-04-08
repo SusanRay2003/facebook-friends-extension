@@ -48,7 +48,8 @@ function App() {
           </ol>
           <br/>
           
-            href="https://github.com/YourUsername/facebook-friends-extension"
+          <a 
+            href="https://github.com/SusanRay2003/facebook-friends-extension"
             target="_blank"
             rel="noreferrer"
             className="github-btn"
