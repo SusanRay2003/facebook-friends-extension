@@ -10,9 +10,8 @@
       font-family: Arial, sans-serif;
       background: #f0f2f5;
     }
-    h2 { color: #1877f2; margin: 0 0 12px; }
+    h2 { color: #1877f2; margin: 0 0 12px; font-size: 16px; }
     button {
-      background: #1877f2;
       color: white;
       border: none;
       padding: 10px 16px;
@@ -21,18 +20,53 @@
       width: 100%;
       font-size: 14px;
       margin-bottom: 8px;
+      font-weight: bold;
     }
-    button:hover { background: #1565c0; }
+    #readBtn { background: #1877f2; }
+    #readBtn:hover { background: #1565c0; }
+    #readBtn:disabled { background: #aaa; cursor: not-allowed; }
     #openBtn { background: #42b72a; }
     #openBtn:hover { background: #36a420; }
-    #status { margin-top: 12px; font-size: 13px; color: #555; }
+    #openBtn:disabled { background: #aaa; cursor: not-allowed; }
+    #counter {
+      background: white;
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+      margin-bottom: 8px;
+      display: none;
+      border: 2px solid #1877f2;
+    }
+    #counter span {
+      font-size: 32px;
+      font-weight: bold;
+      color: #1877f2;
+    }
+    #counter p { font-size: 11px; color: #666; margin: 4px 0 0; }
+    #status { font-size: 12px; color: #555; text-align: center; }
+    .spinner {
+      display: none;
+      text-align: center;
+      font-size: 20px;
+      margin-bottom: 8px;
+    }
   </style>
 </head>
 <body>
-  <h2>👥 Facebook Friends</h2>
-  <button id="readBtn">📥 Read Friends from Facebook</button>
-  <button id="openBtn">🚀 Open Friends App</button>
-  <div id="status">Click Read while on Facebook!</div>
+  <h2>👥 Facebook Friends Reader</h2>
+
+  <div id="counter">
+    <span id="friendCount">0</span>
+    <p>friends found so far...</p>
+  </div>
+
+  <div class="spinner" id="spinner">⏳ Auto-scrolling...</div>
+
+  <button id="readBtn">▶️ Read All Friends</button>
+  <button id="openBtn" disabled>🚀 Open Friends App</button>
+
+  <div id="status">Go to facebook.com/friends/list first!</div>
+
   <script src="popup.js"></script>
 </body>
 </html>

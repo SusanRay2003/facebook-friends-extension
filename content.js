@@ -3,6 +3,8 @@
 const FIREBASE_PROJECT_ID = "facebook-friends-app";
 const FIREBASE_API_KEY = "AIzaSyCUISVXs_jPa8tgvAVIOZvCcAYvmQxiaL4";
 
+let allFriends = new Map();
+
 async function saveToFirebase(friends, userId) {
   const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/friendslists/${userId}?key=${FIREBASE_API_KEY}`;
 
@@ -29,167 +31,168 @@ async function saveToFirebase(friends, userId) {
   });
 }
 
-// ✅ This waits between each scroll
-// so Facebook has time to load new friends!
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function getScrollableContainer() {
-  return document.querySelector('[role="main"]') || document.scrollingElement;
-}
-
-async function autoScroll() {
-  console.log("Starting advanced auto scroll...");
-
-  const container = getScrollableContainer();
-
-  let lastHeight = 0;
-  let sameHeightCount = 0;
-  let previousFriendCount = 0;
-
-  while (true) {
-    // Scroll inside container
-    container.scrollTop = container.scrollHeight;
-
-    await sleep(3000);
-
-    const newHeight = container.scrollHeight;
-    const currentCount = countVisibleFriends();
-
-    console.log("Height:", newHeight, "Friends:", currentCount);
-
-    if (newHeight === lastHeight) {
-      sameHeightCount++;
-    } else {
-      sameHeightCount = 0;
-      lastHeight = newHeight;
-    }
-
-    if (currentCount === previousFriendCount) {
-      sameHeightCount++;
-    } else {
-      previousFriendCount = currentCount;
-    }
-
-    if (sameHeightCount >= 7) {
-      console.log("All friends loaded!");
-      break;
+function getUserId() {
+  const links = document.querySelectorAll('a[href*="facebook.com/"]');
+  for (let link of links) {
+    const match = link.href.match(/facebook\.com\/([^/?]+)/);
+    if (match && match[1] !== 'friends' && match[1] !== 'list') {
+      return match[1];
     }
   }
-
-  container.scrollTop = 0;
-  await sleep(1000);
+  return "user_" + Date.now();
 }
 
-function countVisibleFriends() {
-  // Count friend names visible on page right now
-  const seen = new Set();
-  const spans = document.querySelectorAll('span[dir="auto"]');
-
-  spans.forEach(span => {
-    const name = span.innerText?.trim();
-    if (
-      name && name.length > 2 &&
-      !/^\d/.test(name) &&
-      !name.toLowerCase().includes("friend") &&
-      !name.toLowerCase().includes("mutual") &&
-      !name.toLowerCase().includes("facebook") &&
-      span.closest('a')
-    ) {
-      seen.add(name);
-    }
-  });
-
-  return seen.size;
-}
-
-function extractFriends() {
-  const friends = [];
-  const seen = new Set();
-
-  // Method 1: Get names from span texts
+function scanPageForFriends() {
   const spans = document.querySelectorAll('span[dir="auto"]');
   spans.forEach(span => {
     const name = span.innerText?.trim();
     const link = span.closest('a');
-
     if (
-      name && name.length > 2 &&
-      !seen.has(name) &&
+      name && name.length > 2 && name.length < 60 &&
+      !allFriends.has(name) &&
       !/^\d/.test(name) &&
       !name.toLowerCase().includes("friend") &&
       !name.toLowerCase().includes("mutual") &&
       !name.toLowerCase().includes("facebook") &&
       !name.toLowerCase().includes("search") &&
-      link
+      !name.toLowerCase().includes("home") &&
+      link && link.href.includes("facebook.com")
     ) {
-      seen.add(name);
-
-      // Try to find avatar image near this name
       const img = link.querySelector('img') ||
-                  link.closest('li')?.querySelector('img') ||
-                  null;
-
-      friends.push({
+                  link.closest('li')?.querySelector('img');
+      allFriends.set(name, {
         name,
-        profileUrl: link.href || "#",
+        profileUrl: link.href,
         avatar: img?.src || null
       });
     }
   });
 
-  // Method 2: Get from images with alt text (backup)
-  const allImages = document.querySelectorAll('img[alt]');
-  allImages.forEach(img => {
+  const imgs = document.querySelectorAll('img[alt]');
+  imgs.forEach(img => {
     const name = img.getAttribute('alt')?.trim();
     const link = img.closest('a');
-
     if (
-      name && name.length > 2 &&
-      !seen.has(name) &&
+      name && name.length > 2 && name.length < 60 &&
+      !allFriends.has(name) &&
       name !== "Facebook" &&
       !name.toLowerCase().includes("cover") &&
       !name.toLowerCase().includes("profile picture") &&
       !name.toLowerCase().includes("image") &&
-      link
+      !name.toLowerCase().includes("icon") &&
+      link && link.href.includes("facebook.com")
     ) {
-      seen.add(name);
-      friends.push({
+      allFriends.set(name, {
         name,
-        profileUrl: link.href || "#",
+        profileUrl: link.href,
         avatar: img.src || null
       });
     }
   });
-
-  return friends;
 }
 
-function getUserId() {
-  const profileLink = document.querySelector('a[href*="facebook.com/"][aria-label]');
-  if (profileLink) {
-    const match = profileLink.href.match(/facebook\.com\/([^/?]+)/);
-    if (match && match[1] !== 'friends') return match[1];
+// ✅ THE KEY FIX — Simulate a REAL human scroll event!
+function humanScroll() {
+  // Random scroll amount like a real person
+  const scrollAmount = Math.floor(Math.random() * 300) + 400;
+
+  // Use real wheel event — Facebook can't block this!
+  const wheelEvent = new WheelEvent('wheel', {
+    deltaY: scrollAmount,
+    bubbles: true,
+    cancelable: true
+  });
+  document.dispatchEvent(wheelEvent);
+
+  // Also use scrollBy as backup
+  window.scrollBy({
+    top: scrollAmount,
+    behavior: 'smooth'
+  });
+}
+
+// Random delay between scrolls — like a real human pause!
+function randomDelay() {
+  const min = 1500;
+  const max = 2500;
+  return Math.floor(Math.random() * (max - min)) + min;
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function autoScroll() {
+  let lastCount = 0;
+  let noChangeAttempts = 0;
+  const MAX_NO_CHANGE = 5;
+
+  // Start mutation observer to catch friends as they load
+  const observer = new MutationObserver(() => {
+    scanPageForFriends();
+  });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
+
+  // Initial scan
+  scanPageForFriends();
+
+  while (true) {
+    // Scroll like a human
+    humanScroll();
+
+    // Wait random time like a human
+    const delay = randomDelay();
+    await sleep(delay);
+
+    // Scan for new friends
+    scanPageForFriends();
+
+    const currentCount = allFriends.size;
+
+    // Send live count to popup
+    chrome.runtime.sendMessage({
+      action: "liveCount",
+      count: currentCount
+    });
+
+    if (currentCount === lastCount) {
+      noChangeAttempts++;
+
+      if (noChangeAttempts >= MAX_NO_CHANGE) {
+        // Extra long wait to make sure page fully loaded
+        await sleep(3000);
+        scanPageForFriends();
+
+        // Check one final time
+        if (allFriends.size === lastCount) {
+          observer.disconnect();
+          break;
+        }
+      }
+    } else {
+      // New friends found! Reset counter
+      noChangeAttempts = 0;
+      lastCount = currentCount;
+    }
   }
 
-  // Try from page URL
-  const url = window.location.href;
-  const match = url.match(/facebook\.com\/([^/?]+)/);
-  if (match && match[1] !== 'friends') return match[1];
-
-  return "user_" + Date.now();
+  // Scroll back to top
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  await sleep(500);
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "getFriends") {
-    // Tell popup we started
     sendResponse({ started: true });
 
-    // Start the whole process
+    allFriends.clear();
+
     (async () => {
       try {
-        // Step 1: Auto scroll to load ALL friends
         chrome.runtime.sendMessage({
           action: "updateStatus",
           message: "📜 Auto-scrolling... please wait!"
@@ -197,30 +200,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         await autoScroll();
 
-        // Step 2: Extract all friends from page
-        chrome.runtime.sendMessage({
-          action: "updateStatus",
-          message: "🔍 Collecting friends..."
-        });
-
-        const friends = extractFriends();
+        const friendsList = Array.from(allFriends.values());
         const userId = getUserId();
 
-        // Step 3: Save locally
-        chrome.storage.local.set({ friends, userId });
+        chrome.storage.local.set({ friends: friendsList, userId });
 
-        // Step 4: Save to Firebase
         chrome.runtime.sendMessage({
           action: "updateStatus",
           message: "☁️ Saving to cloud..."
         });
 
-        await saveToFirebase(friends, userId);
+        await saveToFirebase(friendsList, userId);
 
-        // Step 5: Done!
         chrome.runtime.sendMessage({
           action: "friendsDone",
-          count: friends.length,
+          count: friendsList.length,
           userId: userId
         });
 
