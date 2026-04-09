@@ -2,36 +2,31 @@
   "manifest_version": 3,
   "name": "Facebook Friends Reader",
   "version": "1.0",
-  "description": "Reads your Facebook friends list and displays them",
-
+  "description": "Reads your Facebook friends list automatically",
   "permissions": [
     "activeTab",
     "scripting",
     "storage",
     "tabs"
   ],
-
   "host_permissions": [
     "https://www.facebook.com/*",
     "https://firestore.googleapis.com/*"
   ],
-
   "content_scripts": [
     {
       "matches": ["https://www.facebook.com/*"],
-      "js": ["content.js"]
+      "js": ["content.js"],
+      "run_at": "document_idle"
     }
   ],
-
   "background": {
     "service_worker": "background.js"
   },
-
   "action": {
     "default_popup": "popup.html",
     "default_title": "Facebook Friends Reader"
   },
-
   "web_accessible_resources": [
     {
       "resources": ["index.html", "assets/*"],

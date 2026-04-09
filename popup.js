@@ -1,63 +1,43 @@
 // popup.js
-const readBtn = document.getElementById("readBtn");
-const openBtn = document.getElementById("openBtn");
-const statusEl = document.getElementById("status");
-const counter = document.getElementById("counter");
-const friendCount = document.getElementById("friendCount");
-const progressBar = document.getElementById("progressBar");
-const progressFill = document.getElementById("progressFill");
-
-let progress = 0;
-let progressTimer = null;
-
-function startProgressAnimation() {
-  progressBar.style.display = "block";
-  progress = 0;
-  progressTimer = setInterval(() => {
-    if (progress < 90) {
-      progress += Math.random() * 3;
-      progressFill.style.width = progress + "%";
-    }
-  }, 500);
-}
-
-function completeProgress() {
-  clearInterval(progressTimer);
-  progressFill.style.width = "100%";
-  setTimeout(() => {
-    progressBar.style.display = "none";
-  }, 1000);
-}
+const readBtn    = document.getElementById("readBtn");
+const openBtn    = document.getElementById("openBtn");
+const statusEl   = document.getElementById("status");
+const counter    = document.getElementById("counter");
+const friendCount= document.getElementById("friendCount");
+const progressBar= document.getElementById("progressBar");
+const tip        = document.getElementById("tip");
 
 readBtn.addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({
-    active: true,
-    currentWindow: true
+    active: true, currentWindow: true
   });
 
   if (!tab.url.includes("facebook.com")) {
-    statusEl.textContent = "❌ Please open facebook.com/friends/list!";
+    statusEl.textContent = "❌ Open facebook.com/friends/list first!";
     return;
   }
 
   if (!tab.url.includes("friends")) {
-    statusEl.textContent = "⚠️ Go to facebook.com/friends/list first!";
+    statusEl.textContent = "⚠️ Go to facebook.com/friends/list!";
     return;
   }
 
-  readBtn.disabled = true;
-  readBtn.textContent = "⏳ Working...";
+  // Update UI
+  readBtn.disabled      = true;
+  readBtn.textContent   = "⏳ Fetching...";
   counter.style.display = "block";
-  openBtn.disabled = true;
-  startProgressAnimation();
-  statusEl.textContent = "🚀 Starting...";
+  progressBar.style.display = "block";
+  tip.style.display     = "block";
+  openBtn.disabled      = true;
+  statusEl.textContent  = "🚀 Starting...";
 
   chrome.tabs.sendMessage(tab.id, { action: "getFriends" }, (response) => {
     if (chrome.runtime.lastError) {
-      statusEl.textContent = "❌ Refresh Facebook and try again!";
-      readBtn.disabled = false;
-      readBtn.textContent = "▶️ Read All Friends";
-      completeProgress();
+      statusEl.textContent  = "❌ Please refresh Facebook and try again!";
+      readBtn.disabled      = false;
+      readBtn.textContent   = "▶️ Fetch All Friends";
+      progressBar.style.display = "none";
+      tip.style.display     = "none";
     }
   });
 });
@@ -75,22 +55,22 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message.action === "liveCount") {
     friendCount.textContent = message.count;
   }
-
   if (message.action === "updateStatus") {
     statusEl.textContent = message.message;
   }
-
   if (message.action === "friendsDone") {
-    completeProgress();
-    readBtn.disabled = false;
-    readBtn.textContent = "▶️ Read All Friends";
-    friendCount.textContent = message.count;
+    progressBar.style.display = "none";
+    tip.style.display         = "none";
+    readBtn.disabled          = false;
+    readBtn.textContent       = "▶️ Fetch All Friends";
+    friendCount.textContent   = message.count;
 
     if (message.error) {
-      statusEl.textContent = `⚠️ Error: ${message.error}`;
+      statusEl.textContent = `⚠️ Partial: got ${message.count} friends`;
+      if (message.count > 0) openBtn.disabled = false;
     } else {
-      statusEl.textContent = `✅ All ${message.count} friends saved!`;
-      openBtn.disabled = false;
+      statusEl.textContent = `✅ Done! ${message.count} friends saved!`;
+      openBtn.disabled     = false;
     }
   }
 });
