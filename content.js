@@ -42,180 +42,258 @@ function getUserId() {
   return "user_" + Date.now();
 }
 
-function scanPageForFriends() {
-  const spans = document.querySelectorAll('span[dir="auto"]');
-  spans.forEach(span => {
-    const name = span.innerText?.trim();
-    const link = span.closest('a');
-    if (
-      name && name.length > 2 && name.length < 60 &&
-      !allFriends.has(name) &&
-      !/^\d/.test(name) &&
-      !name.toLowerCase().includes("friend") &&
-      !name.toLowerCase().includes("mutual") &&
-      !name.toLowerCase().includes("facebook") &&
-      !name.toLowerCase().includes("search") &&
-      !name.toLowerCase().includes("home") &&
-      link && link.href.includes("facebook.com")
-    ) {
-      const img = link.querySelector('img') ||
-                  link.closest('li')?.querySelector('img');
-      allFriends.set(name, {
-        name,
-        profileUrl: link.href,
-        avatar: img?.src || null
-      });
-    }
-  });
-
-  const imgs = document.querySelectorAll('img[alt]');
-  imgs.forEach(img => {
-    const name = img.getAttribute('alt')?.trim();
-    const link = img.closest('a');
-    if (
-      name && name.length > 2 && name.length < 60 &&
-      !allFriends.has(name) &&
-      name !== "Facebook" &&
-      !name.toLowerCase().includes("cover") &&
-      !name.toLowerCase().includes("profile picture") &&
-      !name.toLowerCase().includes("image") &&
-      !name.toLowerCase().includes("icon") &&
-      link && link.href.includes("facebook.com")
-    ) {
-      allFriends.set(name, {
-        name,
-        profileUrl: link.href,
-        avatar: img.src || null
-      });
-    }
-  });
+// ✅ Get Facebook's internal token from cookies
+function getFacebookToken() {
+  const cookies = document.cookie.split(';');
+  for (let cookie of cookies) {
+    const [key, value] = cookie.trim().split('=');
+    if (key === 'c_user') return value; // Facebook user ID
+  }
+  return null;
 }
 
-// ✅ THE KEY FIX — Simulate a REAL human scroll event!
-function humanScroll() {
-  // Random scroll amount like a real person
-  const scrollAmount = Math.floor(Math.random() * 300) + 400;
-
-  // Use real wheel event — Facebook can't block this!
-  const wheelEvent = new WheelEvent('wheel', {
-    deltaY: scrollAmount,
-    bubbles: true,
-    cancelable: true
-  });
-  document.dispatchEvent(wheelEvent);
-
-  // Also use scrollBy as backup
-  window.scrollBy({
-    top: scrollAmount,
-    behavior: 'smooth'
-  });
+// ✅ Get DTSGToken - Facebook's internal security token
+function getDTSGToken() {
+  const scripts = document.querySelectorAll('script');
+  for (let script of scripts) {
+    const match = script.innerText.match(/"dtsg":{"token":"([^"]+)"/);
+    if (match) return match[1];
+  }
+  // Try another pattern
+  const metaTag = document.querySelector('input[name="fb_dtsg"]');
+  if (metaTag) return metaTag.value;
+  return null;
 }
 
-// Random delay between scrolls — like a real human pause!
-function randomDelay() {
-  const min = 1500;
-  const max = 2500;
-  return Math.floor(Math.random() * (max - min)) + min;
-}
+// ✅ Fetch ALL friends using Facebook's internal GraphQL API
+async function fetchAllFriendsFromAPI() {
+  const userId = getFacebookToken();
+  const dtsg = getDTSGToken();
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
+  if (!userId || !dtsg) {
+    // Fallback to DOM scraping if tokens not found
+    return null;
+  }
 
-async function autoScroll() {
-  let lastCount = 0;
-  let noChangeAttempts = 0;
-  const MAX_NO_CHANGE = 5;
+  let allFetchedFriends = [];
+  let cursor = null;
+  let hasMore = true;
+  let page = 0;
 
-  // Start mutation observer to catch friends as they load
-  const observer = new MutationObserver(() => {
-    scanPageForFriends();
-  });
+  while (hasMore) {
+    page++;
 
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true
-  });
-
-  // Initial scan
-  scanPageForFriends();
-
-  while (true) {
-    // Scroll like a human
-    humanScroll();
-
-    // Wait random time like a human
-    const delay = randomDelay();
-    await sleep(delay);
-
-    // Scan for new friends
-    scanPageForFriends();
-
-    const currentCount = allFriends.size;
-
-    // Send live count to popup
     chrome.runtime.sendMessage({
-      action: "liveCount",
-      count: currentCount
+      action: "updateStatus",
+      message: `📥 Loading page ${page} of friends...`
     });
 
-    if (currentCount === lastCount) {
-      noChangeAttempts++;
+    // Facebook's internal friends API
+    const variables = {
+      count: 30, // fetch 30 at a time
+      cursor: cursor,
+      scale: 1,
+      search: null
+    };
 
-      if (noChangeAttempts >= MAX_NO_CHANGE) {
-        // Extra long wait to make sure page fully loaded
-        await sleep(3000);
-        scanPageForFriends();
+    const formData = new FormData();
+    formData.append('fb_dtsg', dtsg);
+    formData.append('variables', JSON.stringify(variables));
+    formData.append('doc_id', '884987748570211'); // Facebook's internal friends query ID
 
-        // Check one final time
-        if (allFriends.size === lastCount) {
-          observer.disconnect();
-          break;
-        }
+    try {
+      const response = await fetch('https://www.facebook.com/api/graphql/', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include'
+      });
+
+      const text = await response.text();
+
+      // Parse the response
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // Sometimes Facebook returns multiple JSON objects
+        const firstLine = text.split('\n')[0];
+        data = JSON.parse(firstLine);
       }
-    } else {
-      // New friends found! Reset counter
-      noChangeAttempts = 0;
-      lastCount = currentCount;
+
+      // Extract friends from response
+      const edges = data?.data?.viewer?.all_friends?.edges ||
+                    data?.data?.node?.all_friends?.edges || [];
+
+      if (edges.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      edges.forEach(edge => {
+        const node = edge.node;
+        if (node && node.name) {
+          allFetchedFriends.push({
+            name: node.name,
+            profileUrl: `https://www.facebook.com/${node.username || node.id}`,
+            avatar: node.profile_picture?.uri || null
+          });
+        }
+      });
+
+      // Get next page cursor
+      const pageInfo = data?.data?.viewer?.all_friends?.page_info ||
+                       data?.data?.node?.all_friends?.page_info;
+
+      if (pageInfo?.has_next_page && pageInfo?.end_cursor) {
+        cursor = pageInfo.end_cursor;
+      } else {
+        hasMore = false;
+      }
+
+      // Small delay between requests
+      await new Promise(r => setTimeout(r, 1000));
+
+    } catch (err) {
+      console.log("API fetch failed:", err);
+      hasMore = false;
     }
   }
 
-  // Scroll back to top
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  await sleep(500);
+  return allFetchedFriends.length > 0 ? allFetchedFriends : null;
+}
+
+// ✅ Fallback — DOM scraping with MutationObserver + forced scroll
+async function fetchFriendsFromDOM() {
+  return new Promise((resolve) => {
+    const friends = new Map();
+
+    function scan() {
+      document.querySelectorAll('span[dir="auto"]').forEach(span => {
+        const name = span.innerText?.trim();
+        const link = span.closest('a');
+        if (
+          name && name.length > 2 && name.length < 60 &&
+          !friends.has(name) &&
+          !/^\d/.test(name) &&
+          !name.toLowerCase().includes("friend") &&
+          !name.toLowerCase().includes("mutual") &&
+          !name.toLowerCase().includes("facebook") &&
+          link?.href.includes("facebook.com")
+        ) {
+          const img = link.querySelector('img') ||
+                      link.closest('li')?.querySelector('img');
+          friends.set(name, {
+            name,
+            profileUrl: link.href,
+            avatar: img?.src || null
+          });
+        }
+      });
+    }
+
+    // Watch for new content
+    const observer = new MutationObserver(() => {
+      scan();
+      chrome.runtime.sendMessage({
+        action: "liveCount",
+        count: friends.size
+      });
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+
+    scan();
+
+    let lastCount = 0;
+    let noChangeCount = 0;
+
+    // Scroll using multiple techniques at once
+    const scrollInterval = setInterval(() => {
+      // Technique 1: scrollBy
+      window.scrollBy(0, 500);
+
+      // Technique 2: scrollTop
+      document.documentElement.scrollTop += 500;
+
+      // Technique 3: wheel event
+      window.dispatchEvent(new WheelEvent('wheel', {
+        deltaY: 500,
+        bubbles: true
+      }));
+
+      // Technique 4: key event (like pressing Page Down)
+      document.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'PageDown',
+        code: 'PageDown',
+        keyCode: 34,
+        bubbles: true
+      }));
+
+      scan();
+
+      const currentCount = friends.size;
+      chrome.runtime.sendMessage({
+        action: "liveCount",
+        count: currentCount
+      });
+
+      if (currentCount === lastCount) {
+        noChangeCount++;
+        if (noChangeCount >= 8) {
+          clearInterval(scrollInterval);
+          observer.disconnect();
+          window.scrollTo(0, 0);
+          resolve(Array.from(friends.values()));
+        }
+      } else {
+        noChangeCount = 0;
+        lastCount = currentCount;
+      }
+    }, 1200);
+  });
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "getFriends") {
     sendResponse({ started: true });
-
     allFriends.clear();
 
     (async () => {
       try {
         chrome.runtime.sendMessage({
           action: "updateStatus",
-          message: "📜 Auto-scrolling... please wait!"
+          message: "🔑 Trying Facebook API..."
         });
 
-        await autoScroll();
+        // Try API first
+        let friends = await fetchAllFriendsFromAPI();
 
-        const friendsList = Array.from(allFriends.values());
+        if (!friends) {
+          // Fallback to DOM
+          chrome.runtime.sendMessage({
+            action: "updateStatus",
+            message: "📜 Scrolling page to load friends..."
+          });
+          friends = await fetchFriendsFromDOM();
+        }
+
         const userId = getUserId();
-
-        chrome.storage.local.set({ friends: friendsList, userId });
 
         chrome.runtime.sendMessage({
           action: "updateStatus",
-          message: "☁️ Saving to cloud..."
+          message: `☁️ Saving ${friends.length} friends to cloud...`
         });
 
-        await saveToFirebase(friendsList, userId);
+        chrome.storage.local.set({ friends, userId });
+        await saveToFirebase(friends, userId);
 
         chrome.runtime.sendMessage({
           action: "friendsDone",
-          count: friendsList.length,
-          userId: userId
+          count: friends.length,
+          userId
         });
 
       } catch (err) {

@@ -4,10 +4,36 @@ const openBtn = document.getElementById("openBtn");
 const statusEl = document.getElementById("status");
 const counter = document.getElementById("counter");
 const friendCount = document.getElementById("friendCount");
-const spinner = document.getElementById("spinner");
+const progressBar = document.getElementById("progressBar");
+const progressFill = document.getElementById("progressFill");
+
+let progress = 0;
+let progressTimer = null;
+
+function startProgressAnimation() {
+  progressBar.style.display = "block";
+  progress = 0;
+  progressTimer = setInterval(() => {
+    if (progress < 90) {
+      progress += Math.random() * 3;
+      progressFill.style.width = progress + "%";
+    }
+  }, 500);
+}
+
+function completeProgress() {
+  clearInterval(progressTimer);
+  progressFill.style.width = "100%";
+  setTimeout(() => {
+    progressBar.style.display = "none";
+  }, 1000);
+}
 
 readBtn.addEventListener("click", async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    currentWindow: true
+  });
 
   if (!tab.url.includes("facebook.com")) {
     statusEl.textContent = "❌ Please open facebook.com/friends/list!";
@@ -19,20 +45,19 @@ readBtn.addEventListener("click", async () => {
     return;
   }
 
-  // Update UI to loading state
   readBtn.disabled = true;
   readBtn.textContent = "⏳ Working...";
   counter.style.display = "block";
-  spinner.style.display = "block";
   openBtn.disabled = true;
-  statusEl.textContent = "📜 Starting auto-scroll...";
+  startProgressAnimation();
+  statusEl.textContent = "🚀 Starting...";
 
   chrome.tabs.sendMessage(tab.id, { action: "getFriends" }, (response) => {
     if (chrome.runtime.lastError) {
-      statusEl.textContent = "❌ Error! Refresh Facebook and try again.";
+      statusEl.textContent = "❌ Refresh Facebook and try again!";
       readBtn.disabled = false;
       readBtn.textContent = "▶️ Read All Friends";
-      spinner.style.display = "none";
+      completeProgress();
     }
   });
 });
@@ -49,7 +74,6 @@ openBtn.addEventListener("click", () => {
 chrome.runtime.onMessage.addListener((message) => {
   if (message.action === "liveCount") {
     friendCount.textContent = message.count;
-    statusEl.textContent = `Found ${message.count} friends so far...`;
   }
 
   if (message.action === "updateStatus") {
@@ -57,7 +81,7 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 
   if (message.action === "friendsDone") {
-    spinner.style.display = "none";
+    completeProgress();
     readBtn.disabled = false;
     readBtn.textContent = "▶️ Read All Friends";
     friendCount.textContent = message.count;
