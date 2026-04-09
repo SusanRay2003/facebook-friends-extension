@@ -87,13 +87,25 @@ function scrapeFriendList() {
   });
 }
 
+// Debug: log all scrollable divs to console
+function debugScrollContainers() {
+  console.log("=== SCROLLABLE CONTAINERS ===");
+  document.querySelectorAll('div').forEach((div, i) => {
+    if (div.scrollHeight > div.clientHeight + 200 && div.clientHeight > 100) {
+      console.log(
+        `[${i}] scrollHeight:${div.scrollHeight}`,
+        `clientHeight:${div.clientHeight}`,
+        `class:${div.className?.slice(0,40)}`
+      );
+    }
+  });
+}
 // ── THE KEY FUNCTION (from the code you shared) ───────────────
 async function autoScrollAndCollect() {
-  let previousHeight = 0;
-  let currentHeight  = document.body.scrollHeight;
   let sameHeightCount = 0;
-  const MAX_SAME = 8; // increased from 5 to 8
+  const MAX_SAME = 10;
 
+  // ✅ MutationObserver to catch friends as they appear
   const observer = new MutationObserver(() => {
     scrapeFriendList();
     chrome.runtime.sendMessage({
@@ -101,75 +113,132 @@ async function autoScrollAndCollect() {
       count: allFriends.size
     });
   });
-
   observer.observe(document.body, { childList: true, subtree: true });
   scrapeFriendList();
 
-  console.log("Starting automated scroll and collection...");
+  // ✅ Find Facebook's actual scrollable container
+  function getScrollableContainer() {
+    // Try all possible containers Facebook uses
+    const selectors = [
+      '[role="main"]',
+      '[data-pagelet="FriendsListPageContent"]',
+      '[data-pagelet="ProfileAppSection_0"]',
+      'div[style*="overflow-y: auto"]',
+      'div[style*="overflow-y:auto"]',
+      'div[style*="overflow: auto"]',
+      'div[style*="overflow:auto"]',
+      'div[style*="overflow-y: scroll"]',
+    ];
+
+    for (const sel of selectors) {
+      const el = document.querySelector(sel);
+      if (el && el.scrollHeight > el.clientHeight) {
+        console.log("Found container:", sel);
+        return el;
+      }
+    }
+
+    // Last resort — find by largest scrollHeight
+    let best = null;
+    let bestScrollHeight = 0;
+    document.querySelectorAll('div').forEach(div => {
+      if (
+        div.scrollHeight > div.clientHeight + 100 &&
+        div.scrollHeight > bestScrollHeight &&
+        div.clientHeight > 200
+      ) {
+        best = div;
+        bestScrollHeight = div.scrollHeight;
+      }
+    });
+
+    return best;
+  }
+
+  console.log("Starting scroll...");
 
   while (sameHeightCount < MAX_SAME) {
-    previousHeight = document.body.scrollHeight;
+    const container = getScrollableContainer();
+    const prevHeight = container
+      ? container.scrollHeight
+      : document.body.scrollHeight;
 
-    // Scroll to bottom
+    // ✅ Scroll BOTH window AND container
     window.scrollTo(0, document.body.scrollHeight);
 
-    // Also scroll any inner scrollable containers Facebook uses
-    document.querySelectorAll(
-      '[role="main"], [role="feed"], [data-pagelet], ' +
-      '[style*="overflow"], .x9f619, .x1n2onr6'
-    ).forEach(el => {
-      el.scrollTop = el.scrollHeight;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+      console.log("Scrolling container:", container.className?.slice(0,50));
+    }
+
+    // ✅ Also try scrolling ALL divs that might be the list
+    document.querySelectorAll('div').forEach(div => {
+      if (
+        div.scrollHeight > div.clientHeight + 200 &&
+        div.clientHeight > 300
+      ) {
+        div.scrollTop = div.scrollHeight;
+      }
     });
 
     chrome.runtime.sendMessage({
       action: "updateStatus",
-      message: `⏳ Scrolling... ${allFriends.size} / 856 friends`
+      message: `⏳ Loading friends... ${allFriends.size} found`
     });
 
-    // ✅ Wait LONGER — 3.5 seconds for Facebook to load
-    await new Promise(resolve => setTimeout(resolve, 3500));
-
-    // Scrape whatever loaded
+    // Wait for Facebook to load new friends
+    await new Promise(r => setTimeout(r, 3000));
     scrapeFriendList();
 
-    currentHeight = document.body.scrollHeight;
+    const newHeight = container
+      ? container.scrollHeight
+      : document.body.scrollHeight;
 
-    if (currentHeight === previousHeight) {
+    if (newHeight === prevHeight) {
       sameHeightCount++;
 
       chrome.runtime.sendMessage({
         action: "updateStatus",
-        message: `🔍 Waiting for more... attempt ${sameHeightCount}/${MAX_SAME}`
+        message: `🔄 Retrying ${sameHeightCount}/${MAX_SAME}... ${allFriends.size} friends`
       });
 
-      // ✅ Extra long wait on stall — 5 seconds
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      // ✅ Scroll UP then back DOWN — triggers lazy loading!
+      if (container) {
+        container.scrollTop -= 500;
+      } else {
+        window.scrollBy(0, -500);
+      }
 
-      // ✅ Try scrolling UP a bit then back DOWN
-      // This tricks Facebook into loading more!
-      window.scrollBy(0, -300);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      window.scrollTo(0, document.body.scrollHeight);
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await new Promise(r => setTimeout(r, 1500));
 
-      // Check again after trick scroll
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      } else {
+        window.scrollTo(0, document.body.scrollHeight);
+      }
+
+      await new Promise(r => setTimeout(r, 4000));
       scrapeFriendList();
-      currentHeight = document.body.scrollHeight;
 
-      if (currentHeight !== previousHeight) {
-        sameHeightCount = 0; // Reset! New content loaded!
-        console.log("Trick scroll worked! New content loaded.");
+      // Check if new content loaded after retry
+      const retryHeight = container
+        ? container.scrollHeight
+        : document.body.scrollHeight;
+
+      if (retryHeight > newHeight) {
+        sameHeightCount = 0;
+        console.log("Retry worked!");
       }
 
     } else {
       sameHeightCount = 0;
-      console.log(`New content! Height: ${currentHeight}, Friends: ${allFriends.size}`);
+      console.log(`✅ New content! Friends: ${allFriends.size}`);
     }
   }
 
   observer.disconnect();
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  console.log("Done! Total friends:", allFriends.size);
+  console.log("✅ Done! Total:", allFriends.size);
 }
 
 // ── MESSAGE LISTENER ──────────────────────────────────────────
