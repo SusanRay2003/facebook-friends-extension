@@ -3,8 +3,7 @@
 const FIREBASE_PROJECT_ID = "facebook-friends-app";
 const FIREBASE_API_KEY = "AIzaSyCUISVXs_jPa8tgvAVIOZvCcAYvmQxiaL4";
 
-let allFriends = new Map();
-
+// ------------------ FIREBASE SAVE ------------------
 async function saveToFirebase(friends, userId) {
   const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/friendslists/${userId}?key=${FIREBASE_API_KEY}`;
 
@@ -31,158 +30,156 @@ async function saveToFirebase(friends, userId) {
   });
 }
 
+// ------------------ USER ID ------------------
 function getUserId() {
   const links = document.querySelectorAll('a[href*="facebook.com/"]');
   for (let link of links) {
     const match = link.href.match(/facebook\.com\/([^/?]+)/);
-    if (match && match[1] !== 'friends' && match[1] !== 'list') {
+    if (match && match[1] !== 'friends' && match[1] !== 'profile.php') {
       return match[1];
     }
   }
   return "user_" + Date.now();
 }
 
-// ✅ Get Facebook's internal token from cookies
+// ------------------ TOKENS ------------------
 function getFacebookToken() {
   const cookies = document.cookie.split(';');
   for (let cookie of cookies) {
     const [key, value] = cookie.trim().split('=');
-    if (key === 'c_user') return value; // Facebook user ID
+    if (key === 'c_user') return value;
   }
   return null;
 }
 
-// ✅ Get DTSGToken - Facebook's internal security token
 function getDTSGToken() {
+  const input = document.querySelector('input[name="fb_dtsg"]');
+  if (input) return input.value;
+
   const scripts = document.querySelectorAll('script');
   for (let script of scripts) {
     const match = script.innerText.match(/"dtsg":{"token":"([^"]+)"/);
     if (match) return match[1];
   }
-  // Try another pattern
-  const metaTag = document.querySelector('input[name="fb_dtsg"]');
-  if (metaTag) return metaTag.value;
   return null;
 }
 
-// ✅ Fetch ALL friends using Facebook's internal GraphQL API
+// ------------------ GRAPHQL FETCH ------------------
 async function fetchAllFriendsFromAPI() {
   const userId = getFacebookToken();
   const dtsg = getDTSGToken();
 
-  if (!userId || !dtsg) {
-    // Fallback to DOM scraping if tokens not found
-    return null;
-  }
+  if (!userId || !dtsg) return null;
 
-  let allFetchedFriends = [];
+  let allFriends = [];
   let cursor = null;
-  let hasMore = true;
-  let page = 0;
+  let hasNextPage = true;
 
-  while (hasMore) {
-    page++;
+  const docIds = [
+    "8752443744796374",
+    "884987748570211",
+    "9725600514167082"
+  ];
+
+  let attempt = 0;
+
+  while (hasNextPage && attempt < 50) {
+    attempt++;
 
     chrome.runtime.sendMessage({
       action: "updateStatus",
-      message: `📥 Loading page ${page} of friends...`
+      message: `📥 Fetching friends batch ${attempt}...`
     });
 
-    // Facebook's internal friends API
     const variables = {
-      count: 30, // fetch 30 at a time
+      count: 50,
       cursor: cursor,
-      scale: 1,
-      search: null
+      scale: 1
     };
 
     const formData = new FormData();
-    formData.append('fb_dtsg', dtsg);
-    formData.append('variables', JSON.stringify(variables));
-    formData.append('doc_id', '884987748570211'); // Facebook's internal friends query ID
+    formData.append("fb_dtsg", dtsg);
+    formData.append("variables", JSON.stringify(variables));
 
-    try {
-      const response = await fetch('https://www.facebook.com/api/graphql/', {
-        method: 'POST',
-        body: formData,
-        credentials: 'include'
-      });
+    let success = false;
 
-      const text = await response.text();
+    for (let doc_id of docIds) {
+      formData.set("doc_id", doc_id);
 
-      // Parse the response
-      let data;
       try {
-        data = JSON.parse(text);
-      } catch {
-        // Sometimes Facebook returns multiple JSON objects
-        const firstLine = text.split('\n')[0];
-        data = JSON.parse(firstLine);
-      }
+        const res = await fetch("https://www.facebook.com/api/graphql/", {
+          method: "POST",
+          body: formData,
+          credentials: "include"
+        });
 
-      // Extract friends from response
-      const edges = data?.data?.viewer?.all_friends?.edges ||
-                    data?.data?.node?.all_friends?.edges || [];
+        const text = await res.text();
+        const json = JSON.parse(text.split("\n")[0]);
 
-      if (edges.length === 0) {
-        hasMore = false;
-        break;
-      }
+        const edges =
+          json?.data?.viewer?.all_friends?.edges ||
+          json?.data?.node?.all_friends?.edges;
 
-      edges.forEach(edge => {
-        const node = edge.node;
-        if (node && node.name) {
-          allFetchedFriends.push({
-            name: node.name,
-            profileUrl: `https://www.facebook.com/${node.username || node.id}`,
-            avatar: node.profile_picture?.uri || null
-          });
+        if (!edges || edges.length === 0) continue;
+
+        edges.forEach(edge => {
+          const node = edge.node;
+          if (node?.name) {
+            allFriends.push({
+              name: node.name,
+              profileUrl: `https://www.facebook.com/${node.username || node.id}`,
+              avatar: node.profile_picture?.uri || null
+            });
+          }
+        });
+
+        const pageInfo =
+          json?.data?.viewer?.all_friends?.page_info ||
+          json?.data?.node?.all_friends?.page_info;
+
+        if (pageInfo?.has_next_page) {
+          cursor = pageInfo.end_cursor;
+        } else {
+          hasNextPage = false;
         }
-      });
 
-      // Get next page cursor
-      const pageInfo = data?.data?.viewer?.all_friends?.page_info ||
-                       data?.data?.node?.all_friends?.page_info;
+        success = true;
+        break;
 
-      if (pageInfo?.has_next_page && pageInfo?.end_cursor) {
-        cursor = pageInfo.end_cursor;
-      } else {
-        hasMore = false;
+      } catch (err) {
+        console.log("doc_id failed:", doc_id);
       }
-
-      // Small delay between requests
-      await new Promise(r => setTimeout(r, 1000));
-
-    } catch (err) {
-      console.log("API fetch failed:", err);
-      hasMore = false;
     }
+
+    if (!success) {
+      console.log("GraphQL failed, switching to DOM...");
+      break;
+    }
+
+    await new Promise(r => setTimeout(r, 1200));
   }
 
-  return allFetchedFriends.length > 0 ? allFetchedFriends : null;
+  return allFriends.length ? allFriends : null;
 }
 
-// ✅ Fallback — DOM scraping with MutationObserver + forced scroll
+// ------------------ DOM FALLBACK ------------------
 async function fetchFriendsFromDOM() {
   return new Promise((resolve) => {
     const friends = new Map();
 
-    function scan() {
-      document.querySelectorAll('span[dir="auto"]').forEach(span => {
-        const name = span.innerText?.trim();
-        const link = span.closest('a');
+    function collect() {
+      document.querySelectorAll('a[href*="facebook.com"]').forEach(link => {
+        const name = link.innerText?.trim();
+
         if (
-          name && name.length > 2 && name.length < 60 &&
-          !friends.has(name) &&
-          !/^\d/.test(name) &&
-          !name.toLowerCase().includes("friend") &&
-          !name.toLowerCase().includes("mutual") &&
-          !name.toLowerCase().includes("facebook") &&
-          link?.href.includes("facebook.com")
+          name &&
+          name.length > 2 &&
+          name.length < 60 &&
+          !friends.has(link.href)
         ) {
-          const img = link.querySelector('img') ||
-                      link.closest('li')?.querySelector('img');
-          friends.set(name, {
+          const img = link.querySelector("img");
+
+          friends.set(link.href, {
             name,
             profileUrl: link.href,
             avatar: img?.src || null
@@ -191,13 +188,8 @@ async function fetchFriendsFromDOM() {
       });
     }
 
-    // Watch for new content
     const observer = new MutationObserver(() => {
-      scan();
-      chrome.runtime.sendMessage({
-        action: "liveCount",
-        count: friends.size
-      });
+      collect();
     });
 
     observer.observe(document.body, {
@@ -205,61 +197,44 @@ async function fetchFriendsFromDOM() {
       subtree: true
     });
 
-    scan();
-
     let lastCount = 0;
-    let noChangeCount = 0;
+    let stableRounds = 0;
 
-    // Scroll using multiple techniques at once
-    const scrollInterval = setInterval(() => {
-      // Technique 1: scrollBy
-      window.scrollBy(0, 500);
+    const interval = setInterval(() => {
+      const container =
+        document.querySelector('[role="main"]') ||
+        document.scrollingElement;
 
-      // Technique 2: scrollTop
-      document.documentElement.scrollTop += 500;
+      container.scrollTop = container.scrollHeight;
 
-      // Technique 3: wheel event
-      window.dispatchEvent(new WheelEvent('wheel', {
-        deltaY: 500,
-        bubbles: true
-      }));
+      collect();
 
-      // Technique 4: key event (like pressing Page Down)
-      document.dispatchEvent(new KeyboardEvent('keydown', {
-        key: 'PageDown',
-        code: 'PageDown',
-        keyCode: 34,
-        bubbles: true
-      }));
+      const current = friends.size;
 
-      scan();
-
-      const currentCount = friends.size;
       chrome.runtime.sendMessage({
         action: "liveCount",
-        count: currentCount
+        count: current
       });
 
-      if (currentCount === lastCount) {
-        noChangeCount++;
-        if (noChangeCount >= 8) {
-          clearInterval(scrollInterval);
+      if (current === lastCount) {
+        stableRounds++;
+        if (stableRounds > 10) {
+          clearInterval(interval);
           observer.disconnect();
-          window.scrollTo(0, 0);
           resolve(Array.from(friends.values()));
         }
       } else {
-        noChangeCount = 0;
-        lastCount = currentCount;
+        stableRounds = 0;
+        lastCount = current;
       }
-    }, 1200);
+    }, 1500);
   });
 }
 
+// ------------------ MAIN LISTENER ------------------
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "getFriends") {
     sendResponse({ started: true });
-    allFriends.clear();
 
     (async () => {
       try {
@@ -268,15 +243,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           message: "🔑 Trying Facebook API..."
         });
 
-        // Try API first
         let friends = await fetchAllFriendsFromAPI();
 
         if (!friends) {
-          // Fallback to DOM
           chrome.runtime.sendMessage({
             action: "updateStatus",
-            message: "📜 Scrolling page to load friends..."
+            message: "📜 Falling back to smart scrolling..."
           });
+
           friends = await fetchFriendsFromDOM();
         }
 
@@ -284,10 +258,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         chrome.runtime.sendMessage({
           action: "updateStatus",
-          message: `☁️ Saving ${friends.length} friends to cloud...`
+          message: `☁️ Saving ${friends.length} friends...`
         });
 
         chrome.storage.local.set({ friends, userId });
+
         await saveToFirebase(friends, userId);
 
         chrome.runtime.sendMessage({
